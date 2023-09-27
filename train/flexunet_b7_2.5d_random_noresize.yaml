@@ -1,0 +1,179 @@
+General:
+    project: LNQ2023
+    seed: 1234
+    accelerator: gpu    # cpu, gpu
+    precision: 16    # 16, 32, bf16
+    strategy: ddp    # ddp, ddp2, dp, none
+    num_nodes: 1
+    gpus: 0
+    epoch: &epoch 100
+    debug: False
+    lr_tune: False
+    check_val_every_n_epoch: 5
+    mode: train
+
+Data:
+    dataset:
+        name: LNQ2023
+        top_dir: /data/MICCAI2023_LNQ
+        train_datalist: datalist/train_datalist.csv
+        valid_datalist: datalist/valid_datalist.csv
+        predict_datalist: datalist/valid_datalist.csv
+        num_classes: &num_classes 2
+        cache_dir: /data4/cache/lnq2023/2d_random_noresize
+        sampling_type: 2.5d_random  # 2d_all, 2d_random, 2.5d_random, 3d
+        num_samples_per_volume: &num_samples_per_volume 12
+        num_slices: &num_slices 5
+        sliding_window_size: [*num_slices, 512, 512]
+        sliding_window_batch_size: 8
+    dataloader:
+        batch_size: 1
+        num_workers: 4
+        train:
+            shuffle: False
+        valid:
+            shuffle: False
+        test:
+            shuffle: False
+
+Model:
+    arch: flexbile_unet
+    params:
+        spatial_dims: 2
+        in_channels: *num_slices
+        out_channels: *num_classes
+        backbone: efficientnet-b7
+#        pretrained: True   # use imagenet weights for backbone
+        pretrained: False
+        norm: instance
+    pretrained: None
+
+Optimizer:
+    optimizer:
+        name: AdamW
+        params:
+            lr: !!python/float 1e-4
+            weight_decay: !!python/float 1e-5
+    lr_scheduler:
+        name: CosineAnnealingLR
+        params:
+            T_max: *epoch
+    accumulate_grad_batches: 1
+
+Loss:
+    base_loss:
+        name: DiceCELoss
+        params:
+            include_background: True
+            to_onehot_y: True
+            softmax: True
+
+Transform:
+    intensity_range_param_ct:
+        a_min: &a_min_ct -110
+        a_max: &a_max_ct 140
+        b_min: &b_min_ct 0.0
+        b_max: &b_max_ct 1.0
+        clip: &clip_ct True
+    train_3d:
+        - name: LoadImaged
+          params:
+            reader: nrrdreader
+            keys: ["image", "label"]
+        - name: EnsureChannelFirstd
+          params:
+            keys: ["image", "label"]
+        - name: EnsureSameSized
+          params:
+            keys: ["image", "label"]
+        - name: ScaleIntensityRanged
+          params:
+            keys: ["image"]
+            a_min: *a_min_ct
+            a_max: *a_max_ct
+            b_min: *b_min_ct
+            b_max: *b_max_ct
+            clip: *clip_ct
+        - name: RandCropByPosNegLabeld
+          params:
+            keys: ["image", "label"]
+            label_key: label
+            spatial_size: [-1, -1, *num_slices]
+            pos: 2
+            neg: 1
+            num_samples: *num_samples_per_volume        
+        - name: SqueezeDimd
+          params:
+            keys: ["image", "label"]
+            dim: 0
+        - name: RandShiftIntensityd
+          params:
+            keys: ["image"]
+            offsets: 0.05
+            prob: 0.50
+        - name: RandAffined
+          params:
+            keys: ["image", "label"]
+            rotate_range: [0.1, 0.1, 0]
+            translate_range: [10, 10, 0]
+            scale_range: [0.1, 0.1, 0]
+            mode: ["bilinear", "nearest"]
+            prob: 0.50
+        - name: Transposed
+          params:
+            keys: ["image", "label"]
+            indices: [2, 0, 1]
+        - name: ToTensord
+          params:
+            keys: ["image", "label"]
+
+    valid_3d:
+        - name: LoadImaged
+          params:
+            reader: nrrdreader
+            keys: ["image", "label"]
+        - name: EnsureChannelFirstd
+          params:
+            keys: ["image", "label"]
+        - name: EnsureSameSized
+          params:
+            keys: ["image", "label"]
+        - name: ScaleIntensityRanged
+          params:
+            keys: ["image"]
+            a_min: *a_min_ct
+            a_max: *a_max_ct
+            b_min: *b_min_ct
+            b_max: *b_max_ct
+            clip: *clip_ct
+        - name: ToTensord
+          params:
+            keys: ["image", "label"]
+
+    test_3d:
+        - name: LoadImaged
+          params:
+            keys: ["image"]
+        - name: EnsureChannelFirstd
+          params:
+            keys: ["image"]
+        - name: ScaleIntensityRanged
+          params:
+            keys: ["image"]
+            a_min: *a_min_ct
+            a_max: *a_max_ct
+            b_min: *b_min_ct
+            b_max: *b_max_ct
+            clip: *clip_ct
+        - name: Transposed
+          params:
+            keys: ["image"]
+            indices: [2, 0, 1]            
+        - name: ToTensord
+          params:
+            keys: ["image"]
+
+Tuner:
+    min_lr: !!python/float 1e-6
+    max_lr: !!python/float 1e-1
+    num_training: 100
