@@ -1,0 +1,70 @@
+General:
+    project: LNQ2023
+    seed: 1234
+    accelerator: gpu    # cpu, gpu
+    precision: 16    # 16, 32, bf16
+    strategy: ddp    # ddp, ddp2, dp, none
+    num_nodes: 1
+    gpus: 0
+    epoch: &epoch 50
+    debug: False
+    lr_tune: False
+    check_val_every_n_epoch: 5
+    mode: predict
+
+Data:
+    dataset:
+        name: LNQ2023
+        top_dir: /data/MICCAI2023_LNQ
+        predict_datalist: datalist/valid_datalist.csv
+        num_classes: &num_classes 2
+        cache_dir: /data4/cache/lnq2023/2d_random
+        sampling_type: 2.5d_random  # 2d_all, 2d_random, 2.5d_random, 3d
+        num_samples_per_volume: &num_samples_per_volume 32
+        num_slices: &num_slices 5
+        sliding_window_size: [*num_slices, 512, 512]
+        sliding_window_batch_size: 8
+    dataloader:
+        batch_size: 1
+        num_workers: 1
+        predict:
+            shuffle: False
+
+Model:
+    arch: flexbile_unet
+    params:
+        spatial_dims: 2
+        in_channels: *num_slices
+        out_channels: *num_classes
+        backbone: efficientnet-b7
+        pretrained: False   # use imagenet weights for backbone
+    pretrained: flexbile_unet-epoch=54-valid_loss=0.28.ckpt
+
+Transform:
+    intensity_range_param_ct:
+        a_min: &a_min_ct -110
+        a_max: &a_max_ct 140
+        b_min: &b_min_ct 0.0
+        b_max: &b_max_ct 1.0
+        clip: &clip_ct True
+    predict_3d:
+        - name: LoadImaged
+          params:
+            keys: ["image"]
+        - name: EnsureChannelFirstd
+          params:
+            keys: ["image"]
+        - name: ScaleIntensityRanged
+          params:
+            keys: ["image"]
+            a_min: *a_min_ct
+            a_max: *a_max_ct
+            b_min: *b_min_ct
+            b_max: *b_max_ct
+            clip: *clip_ct
+        - name: ToTensord
+          params:
+            keys: ["image"]    
+
+Postprocess:
+    cc_thresh: 400

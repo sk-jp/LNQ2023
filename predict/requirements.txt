@@ -1,0 +1,11 @@
+addict==2.4.0
+connected_components_3d==3.10.0
+lightning==2.0.5
+monai==1.2.0
+numpy==1.23.5
+pynrrd==1.0.0
+PyYAML==6.0
+PyYAML==6.0.1
+SimpleITK==2.1.0
+SimpleITK==2.3.0
+torch==2.0.1+cu118
